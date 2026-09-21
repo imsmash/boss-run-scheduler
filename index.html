@@ -459,14 +459,6 @@
     </form>
   </div>
 
-  <div class="color-popover" id="colorPopover" hidden>
-    <div class="color-swatch-grid" id="colorSwatchGrid"></div>
-    <div class="color-divider"></div>
-    <div class="color-custom-row">
-      <input type="color" id="colorCustomInput" class="color-custom-swatch" aria-label="Custom color">
-      <input type="text" id="colorHexInput" class="color-hex-input" maxlength="7" placeholder="#000000" spellcheck="false">
-    </div>
-  </div>
 
   <div class="card">
     <div class="mode-bar">
@@ -497,7 +489,15 @@
     <ul class="best-list" id="bestList"></ul>
   </div>
 
-  <footer>Synced live for the whole group · minimum 1‑hour slots · Mon–Sun, all 24 hours</footer>
+</div>
+
+<div class="color-popover" id="colorPopover" hidden>
+  <div class="color-swatch-grid" id="colorSwatchGrid"></div>
+  <div class="color-divider"></div>
+  <div class="color-custom-row">
+    <input type="color" id="colorCustomInput" class="color-custom-swatch" aria-label="Custom color">
+    <input type="text" id="colorHexInput" class="color-hex-input" maxlength="7" placeholder="#000000" spellcheck="false">
+  </div>
 </div>
 
 <div class="modal-backdrop" id="codeModal" hidden>
@@ -807,14 +807,6 @@
       alert("Couldn't reach the shared list. Check your connection and try again.");
       return false;
     }
-  }
-
-  document.getElementById("forgetCodeBtn").addEventListener("click", function(){
-    clearCode();
-    updateForgetBtn();
-  });
-  function updateForgetBtn(){
-    document.getElementById("forgetCodeBtn").hidden = !getSavedCode();
   }
 
   // add/edit/remove people
@@ -1297,6 +1289,14 @@
     localStorage.setItem(TZ_PREF_KEY, displayTz);
     renderAll();
   });
+
+  document.getElementById("forgetCodeBtn").addEventListener("click", function(){
+    clearCode();
+    updateForgetBtn();
+  });
+  function updateForgetBtn(){
+    document.getElementById("forgetCodeBtn").hidden = !getSavedCode();
+  }
 
   wireGridInteractions(document.getElementById("schedTable"));
   populateTzSelect(document.getElementById("tzInput"), displayTz);
