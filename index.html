@@ -136,7 +136,23 @@
     box-shadow:0 0 0 2px var(--ring);
     background:var(--accent-soft);
   }
-  .chip .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+  .chip .dot{
+    width:14px;height:14px;border-radius:50%;flex:none;
+    border:1px solid rgba(0,0,0,.25);
+    padding:0;cursor:pointer;
+  }
+  .chip .dot:hover{box-shadow:0 0 0 2px var(--ring);}
+  .dot-btn{
+    width:20px;height:20px;border-radius:50%;flex:none;
+    border:1px solid var(--border);
+    cursor:pointer;
+    padding:0;
+  }
+  .dot-btn:hover{box-shadow:0 0 0 2px var(--ring);}
+  .color-hidden-input{
+    position:absolute;width:1px;height:1px;
+    opacity:0;pointer-events:none;
+  }
   .chip .tzabbr{
     font-family:var(--font-mono);
     font-size:10.5px;
@@ -385,11 +401,14 @@
     <div class="roster-row" id="rosterRow"></div>
     <div class="empty-note" id="emptyNote" hidden>No one added yet — add your first teammate below.</div>
     <form class="add-form" id="addForm">
+      <button type="button" class="dot-btn" id="addColorBtn" aria-label="Pick a color" title="Pick a color"></button>
       <input type="text" id="nameInput" placeholder="Teammate's name" maxlength="24" autocomplete="off">
       <select id="tzInput" aria-label="Teammate's time zone"></select>
       <button type="submit" class="btn btn-primary">Add</button>
     </form>
   </div>
+
+  <input type="color" id="hiddenColorInput" class="color-hidden-input" tabindex="-1" aria-hidden="true">
 
   <div class="card">
     <div class="mode-bar">
@@ -551,6 +570,8 @@
   let paintValue = null;
   let refDate = new Date();
   let displayTz = localStorage.getItem(TZ_PREF_KEY) || DETECTED_TZ;
+  let addColor = COLORS[0];
+  let addColorTouched = false;
 
   function activePerson(){
     if(!activeId) return null;
@@ -558,6 +579,18 @@
     if(!base) return null;
     if(editBuffer && editBuffer.id === activeId) return Object.assign({}, base, { cells: editBuffer.cells });
     return base;
+  }
+
+  // opens the OS color picker; onPick(hexColor) fires once a color is chosen
+  function pickColor(currentColor, onPick){
+    const input = document.getElementById("hiddenColorInput");
+    input.value = currentColor;
+    function handler(e){
+      input.removeEventListener("input", handler);
+      onPick(e.target.value);
+    }
+    input.addEventListener("input", handler);
+    input.click();
   }
 
   // firestore sync
@@ -669,7 +702,7 @@
     const id = newId();
     const person = {
       name: name,
-      color: colorForId(id),
+      color: addColor,
       tz: tz || displayTz,
       cells: {},
       removed: false,
@@ -684,8 +717,16 @@
       activeId = id;
       mode = "edit";
       editBuffer = { id: id, cells: {} };
+      addColorTouched = false;
       renderAll();
     }
+  }
+
+  async function recolorPerson(person, color){
+    const updated = Object.assign({}, person, { color: color });
+    await withCode(function(code){
+      return writePerson(Object.assign({}, updated, { passphrase: code }));
+    });
   }
 
   async function removePerson(p){
@@ -796,9 +837,16 @@
     people.forEach(function(p){
       const chip = document.createElement("div");
       chip.className = "chip" + (activeId === p.id && mode === "edit" ? " active" : "");
-      const dot = document.createElement("span");
+      const dot = document.createElement("button");
+      dot.type = "button";
       dot.className = "dot";
       dot.style.background = p.color;
+      dot.setAttribute("aria-label", "Change " + p.name + "'s color");
+      dot.title = "Change color";
+      dot.addEventListener("click", function(ev){
+        ev.stopPropagation();
+        pickColor(p.color, function(newColor){ recolorPerson(p, newColor); });
+      });
       chip.appendChild(dot);
       const label = document.createElement("span");
       label.textContent = p.name;
@@ -914,7 +962,6 @@
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
-    wireGridInteractions(table);
   }
 
   function wireGridInteractions(table){
@@ -1091,6 +1138,8 @@
 
   function renderAll(){
     refDate = new Date();
+    if(!addColorTouched){ addColor = COLORS[people.length % COLORS.length]; }
+    document.getElementById("addColorBtn").style.background = addColor;
     renderRoster();
     populateTzSelect(document.getElementById("displayTzSelect"), displayTz);
     renderModeControls();
@@ -1103,6 +1152,14 @@
       ? "Click or drag cells to mark when " + (activePerson() ? activePerson().name : "this person") + " is free."
       : "Hover or tap a cell to see who's free then.";
   }
+
+  document.getElementById("addColorBtn").addEventListener("click", function(){
+    pickColor(addColor, function(color){
+      addColor = color;
+      addColorTouched = true;
+      document.getElementById("addColorBtn").style.background = addColor;
+    });
+  });
 
   document.getElementById("addForm").addEventListener("submit", function(e){
     e.preventDefault();
@@ -1119,6 +1176,7 @@
     renderAll();
   });
 
+  wireGridInteractions(document.getElementById("schedTable"));
   populateTzSelect(document.getElementById("tzInput"), displayTz);
   renderAll();
 </script>
