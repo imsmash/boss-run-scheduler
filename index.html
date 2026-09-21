@@ -445,6 +445,10 @@
       <span id="syncStatusText">Connecting…</span>
       <button type="button" id="forgetCodeBtn" hidden>Forget saved code</button>
     </div>
+    <div class="sync-status">
+      <span>Board: <strong id="boardLabel">Main</strong></span>
+      <button type="button" id="switchBoardBtn">Switch board</button>
+    </div>
   </header>
 
   <div class="card">
@@ -481,7 +485,6 @@
       <span id="legendLabels" style="margin-left:2px;"></span>
     </div>
     <div class="cell-detail" id="cellDetail">Hover or tap a cell to see who's free then.</div>
-    <p class="note">Cross-timezone conversion is rounded to the nearest hour (matters only for half-hour zones like India or Adelaide).</p>
   </div>
 
   <div class="card">
@@ -502,7 +505,7 @@
 
 <div class="modal-backdrop" id="codeModal" hidden>
   <div class="modal">
-    <h2>Enter the group code</h2>
+    <h2 id="codeModalTitle">Enter the group code</h2>
     <p id="codeModalMsg">Ask whoever set this up for the shared code — it's needed to add or change anyone's hours.</p>
     <input type="password" id="codeInput" placeholder="Group code" autocomplete="off">
     <div class="modal-error" id="codeModalError"></div>
@@ -531,10 +534,26 @@
 
   const app = initializeApp(FIREBASE_CONFIG);
   const db = getFirestore(app);
-  const peopleCol = collection(db, "people");
 
   const CODE_KEY = "bossRunScheduler:code";
+  const BOARD_KEY = "bossRunScheduler:board";
   const TZ_PREF_KEY = "bossRunScheduler:displayTz";
+  let currentBoard = localStorage.getItem(BOARD_KEY) || "";
+  let unsubscribePeople = null;
+
+  function sanitizeBoardId(raw){
+    return (raw || "")
+      .trim().toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+  }
+  function getPeopleCol(){
+    return currentBoard ? collection(db, "boards", currentBoard, "people") : collection(db, "people");
+  }
+  function boardDisplayName(){
+    return currentBoard ? currentBoard : "Main";
+  }
 
   const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
   const DAY_FULL = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
@@ -716,27 +735,36 @@
   }
 
   // firestore sync
-  onSnapshot(peopleCol, function(snapshot){
-    people = snapshot.docs
-      .map(function(d){ return Object.assign({ id: d.id }, d.data()); })
-      .filter(function(p){ return !p.removed; })
-      .sort(function(a,b){ return (a.createdAt||0) - (b.createdAt||0); });
-    setSyncStatus(true);
+  function subscribeBoard(){
+    if(unsubscribePeople){ unsubscribePeople(); unsubscribePeople = null; }
+    people = [];
+    activeId = null;
+    mode = "overlap";
+    editBuffer = null;
+    setSyncStatus(null);
     renderAll();
-  }, function(err){
-    console.error(err);
-    setSyncStatus(false);
-  });
+    unsubscribePeople = onSnapshot(getPeopleCol(), function(snapshot){
+      people = snapshot.docs
+        .map(function(d){ return Object.assign({ id: d.id }, d.data()); })
+        .filter(function(p){ return !p.removed; })
+        .sort(function(a,b){ return (a.createdAt||0) - (b.createdAt||0); });
+      setSyncStatus(true);
+      renderAll();
+    }, function(err){
+      console.error(err);
+      setSyncStatus(false);
+    });
+  }
 
   function setSyncStatus(ok){
     const el = document.getElementById("syncStatus");
     const text = document.getElementById("syncStatusText");
-    el.classList.toggle("offline", !ok);
-    text.textContent = ok ? "Synced live for the whole group" : "Can't reach the shared list right now";
+    el.classList.toggle("offline", ok === false);
+    text.textContent = ok === null ? "Connecting…" : (ok ? "Synced live for the whole group" : "Can't reach the shared list right now");
   }
 
   async function writePerson(person){
-    await setDoc(doc(db, "people", person.id), person, { merge: false });
+    await setDoc(doc(getPeopleCol(), person.id), person, { merge: false });
   }
 
   // group code prompt
@@ -744,13 +772,18 @@
   function saveCode(code){ localStorage.setItem(CODE_KEY, code); }
   function clearCode(){ localStorage.removeItem(CODE_KEY); }
 
-  function askForCode(message){
+  function askForCode(message, allowEmpty, opts){
+    opts = opts || {};
     return new Promise(function(resolve){
       const modal = document.getElementById("codeModal");
       const input = document.getElementById("codeInput");
       const errEl = document.getElementById("codeModalError");
       const msgEl = document.getElementById("codeModalMsg");
+      const titleEl = document.getElementById("codeModalTitle");
+      titleEl.textContent = opts.title || "Enter the group code";
       msgEl.textContent = message || "Ask whoever set this up for the shared code — it's needed to add or change anyone's hours.";
+      input.type = opts.type || "password";
+      input.placeholder = opts.placeholder || "Group code";
       errEl.textContent = "";
       input.value = "";
       modal.hidden = false;
@@ -764,7 +797,7 @@
       }
       function onSubmit(){
         const val = input.value.trim();
-        if(!val){ errEl.textContent = "Enter a code to continue."; return; }
+        if(!val && !allowEmpty){ errEl.textContent = "Enter a code to continue."; return; }
         cleanup();
         resolve(val);
       }
@@ -809,12 +842,31 @@
     }
   }
 
+  // writes go through the shared passphrase on the Main board; alt boards
+  // are gated only by knowing the board code itself, so they write directly.
+  async function performWrite(person){
+    if(currentBoard){
+      try{
+        await writePerson(person);
+        return true;
+      }catch(err){
+        console.error(err);
+        alert("Couldn't reach this board's list. Check your connection and try again.");
+        return false;
+      }
+    }
+    return withCode(function(code){
+      return writePerson(Object.assign({}, person, { passphrase: code }));
+    });
+  }
+
   // add/edit/remove people
   async function addPerson(name, tz){
     name = name.trim();
     if(!name) return;
     const id = newId();
     const person = {
+      id: id,
       name: name,
       color: addColor,
       tz: tz || displayTz,
@@ -823,10 +875,7 @@
       createdAt: Date.now(),
       passphrase: ""
     };
-    const ok = await withCode(function(code){
-      person.passphrase = code;
-      return writePerson(Object.assign({ id: id }, person));
-    });
+    const ok = await performWrite(person);
     if(ok){
       activeId = id;
       mode = "edit";
@@ -838,15 +887,11 @@
 
   async function recolorPerson(person, color){
     const updated = Object.assign({}, person, { color: color });
-    await withCode(function(code){
-      return writePerson(Object.assign({}, updated, { passphrase: code }));
-    });
+    await performWrite(updated);
   }
 
   async function removePerson(p){
-    const ok = await withCode(function(code){
-      return writePerson(Object.assign({}, p, { removed: true, passphrase: code }));
-    });
+    const ok = await performWrite(Object.assign({}, p, { removed: true }));
     if(ok && activeId === p.id){ activeId = null; mode = "overlap"; editBuffer = null; renderAll(); }
   }
 
@@ -887,9 +932,7 @@
     const base = people.find(function(p){ return p.id === editBuffer.id; });
     if(!base) return;
     const updated = Object.assign({}, base, { cells: editBuffer.cells });
-    await withCode(function(code){
-      return writePerson(Object.assign({}, updated, { passphrase: code }));
-    });
+    await performWrite(updated);
   }
 
   // overlap calculations
@@ -1262,9 +1305,27 @@
     renderLegend();
     renderBest();
     updateForgetBtn();
+    document.getElementById("boardLabel").textContent = boardDisplayName();
     document.getElementById("cellDetail").textContent = mode === "edit"
       ? "Click or drag cells to mark when " + (activePerson() ? activePerson().name : "this person") + " is free."
       : "Hover or tap a cell to see who's free then.";
+  }
+
+  async function switchBoard(){
+    const raw = await askForCode(
+      currentBoard
+        ? "Type a board code (leave blank for Main), then hit Continue:"
+        : "Type any code to create or join a separate board (leave blank to stay on Main):",
+      true,
+      { title: "Switch board", type: "text", placeholder: "Board code (blank = Main)" }
+    );
+    if(raw === null) return;
+    const sanitized = sanitizeBoardId(raw);
+    if(sanitized === currentBoard) return;
+    currentBoard = sanitized;
+    if(currentBoard){ localStorage.setItem(BOARD_KEY, currentBoard); }
+    else{ localStorage.removeItem(BOARD_KEY); }
+    subscribeBoard();
   }
 
   document.getElementById("addColorBtn").addEventListener("click", function(){
@@ -1298,9 +1359,11 @@
     document.getElementById("forgetCodeBtn").hidden = !getSavedCode();
   }
 
+  document.getElementById("switchBoardBtn").addEventListener("click", switchBoard);
+
   wireGridInteractions(document.getElementById("schedTable"));
   populateTzSelect(document.getElementById("tzInput"), displayTz);
-  renderAll();
+  subscribeBoard();
 </script>
 </body>
 </html>
