@@ -231,6 +231,9 @@
     width:100%;
     min-width:640px;
     font-variant-numeric:tabular-nums;
+    user-select:none;
+    -webkit-user-select:none;
+    -webkit-touch-callout:none;
   }
   table.sched th, table.sched td{
     border:1px solid var(--border);
@@ -262,6 +265,7 @@
     cursor:pointer;
     position:relative;
     transition:background-color .08s ease;
+    touch-action:none;
   }
   td.cell:hover{outline:2px solid var(--ring);outline-offset:-2px;}
   td.cell .count{
@@ -936,6 +940,7 @@
     table.addEventListener("pointerdown", function(e){
       const td = e.target.closest("td.cell");
       if(!td) return;
+      e.preventDefault();
       isPointerDown = true;
       handleStart(td);
     });
