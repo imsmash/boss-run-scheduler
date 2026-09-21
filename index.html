@@ -149,10 +149,61 @@
     padding:0;
   }
   .dot-btn:hover{box-shadow:0 0 0 2px var(--ring);}
-  .color-hidden-input{
-    position:absolute;width:1px;height:1px;
-    opacity:0;pointer-events:none;
+
+  .color-popover{
+    position:fixed;
+    z-index:60;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:12px;
+    width:184px;
+    box-shadow:0 12px 28px rgba(0,0,0,.45);
   }
+  .color-popover[hidden]{display:none;}
+  .color-swatch-grid{
+    display:grid;
+    grid-template-columns:repeat(4, 1fr);
+    gap:8px;
+    margin-bottom:10px;
+  }
+  .color-swatch{
+    width:32px;height:32px;
+    border-radius:50%;
+    border:2px solid transparent;
+    cursor:pointer;
+    padding:0;
+    position:relative;
+  }
+  .color-swatch:hover{box-shadow:0 0 0 2px var(--ring);}
+  .color-swatch.selected{border-color:var(--accent);}
+  .color-swatch.selected::after{
+    content:"";
+    position:absolute;inset:0;margin:auto;
+    width:8px;height:8px;border-radius:50%;
+    background:var(--accent-ink);
+    box-shadow:0 0 0 1px rgba(0,0,0,.3);
+  }
+  .color-divider{height:1px;background:var(--border);margin:2px 0 10px;}
+  .color-custom-row{display:flex;align-items:center;gap:8px;}
+  .color-custom-swatch{
+    width:28px;height:28px;border-radius:6px;
+    border:1px solid var(--border);
+    padding:0;background:none;
+    cursor:pointer;
+  }
+  .color-hex-input{
+    flex:1;min-width:0;
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:6px 8px;
+    color:var(--text);
+    font-family:var(--font-mono);
+    font-size:12.5px;
+    letter-spacing:.03em;
+  }
+  .color-hex-input:focus{outline:2px solid var(--ring);border-color:var(--accent);}
   .chip .tzabbr{
     font-family:var(--font-mono);
     font-size:10.5px;
@@ -170,7 +221,7 @@
   }
   .chip .rm:hover{color:var(--danger);}
 
-  .add-form{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .add-form{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;}
   .add-form input[type="text"]{
     flex:1 1 160px;min-width:0;
     background:var(--bg);
@@ -402,13 +453,20 @@
     <div class="empty-note" id="emptyNote" hidden>No one added yet — add your first teammate below.</div>
     <form class="add-form" id="addForm">
       <button type="button" class="dot-btn" id="addColorBtn" aria-label="Pick a color" title="Pick a color"></button>
-      <input type="text" id="nameInput" placeholder="Teammate's name" maxlength="24" autocomplete="off">
+      <input type="text" id="nameInput" placeholder="Name" maxlength="24" autocomplete="off">
       <select id="tzInput" aria-label="Teammate's time zone"></select>
       <button type="submit" class="btn btn-primary">Add</button>
     </form>
   </div>
 
-  <input type="color" id="hiddenColorInput" class="color-hidden-input" tabindex="-1" aria-hidden="true">
+  <div class="color-popover" id="colorPopover" hidden>
+    <div class="color-swatch-grid" id="colorSwatchGrid"></div>
+    <div class="color-divider"></div>
+    <div class="color-custom-row">
+      <input type="color" id="colorCustomInput" class="color-custom-swatch" aria-label="Custom color">
+      <input type="text" id="colorHexInput" class="color-hex-input" maxlength="7" placeholder="#000000" spellcheck="false">
+    </div>
+  </div>
 
   <div class="card">
     <div class="mode-bar">
@@ -581,16 +639,80 @@
     return base;
   }
 
-  // opens the OS color picker; onPick(hexColor) fires once a color is chosen
-  function pickColor(currentColor, onPick){
-    const input = document.getElementById("hiddenColorInput");
-    input.value = currentColor;
-    function handler(e){
-      input.removeEventListener("input", handler);
-      onPick(e.target.value);
+  // opens the themed color popover near triggerEl; onPick(hexColor) fires once a color is chosen
+  function normalizeHex(v){
+    v = (v || "").trim();
+    if(!v.startsWith("#")) v = "#" + v;
+    if(/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase();
+    if(/^#[0-9a-fA-F]{3}$/.test(v)){
+      return "#" + v.slice(1).split("").map(function(c){ return c + c; }).join("");
     }
-    input.addEventListener("input", handler);
-    input.click();
+    return null;
+  }
+
+  function pickColor(triggerEl, currentColor, onPick){
+    const pop = document.getElementById("colorPopover");
+    const grid = document.getElementById("colorSwatchGrid");
+    const customInput = document.getElementById("colorCustomInput");
+    const hexInput = document.getElementById("colorHexInput");
+
+    function close(){
+      pop.hidden = true;
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("keydown", onKey);
+    }
+    function choose(color){
+      close();
+      onPick(color);
+    }
+    function onOutside(e){
+      if(!pop.contains(e.target) && e.target !== triggerEl){ close(); }
+    }
+    function onKey(e){ if(e.key === "Escape") close(); }
+
+    grid.innerHTML = "";
+    COLORS.forEach(function(c){
+      const sw = document.createElement("button");
+      sw.type = "button";
+      sw.className = "color-swatch" + (c.toLowerCase() === currentColor.toLowerCase() ? " selected" : "");
+      sw.style.background = c;
+      sw.setAttribute("aria-label", c);
+      sw.addEventListener("click", function(){ choose(c); });
+      grid.appendChild(sw);
+    });
+
+    customInput.value = /^#[0-9a-fA-F]{6}$/.test(currentColor) ? currentColor : "#000000";
+    hexInput.value = currentColor;
+    customInput.oninput = function(){ hexInput.value = customInput.value; };
+    customInput.onchange = function(){ choose(customInput.value); };
+    hexInput.onkeydown = function(e){
+      if(e.key === "Enter"){
+        const v = normalizeHex(hexInput.value);
+        if(v) choose(v);
+      }
+    };
+    hexInput.onblur = function(){
+      const v = normalizeHex(hexInput.value);
+      if(v) hexInput.value = v;
+    };
+
+    pop.hidden = false;
+    const rect = triggerEl.getBoundingClientRect();
+    let left = rect.left;
+    let top = rect.bottom + 8;
+    pop.style.left = "0px";
+    pop.style.top = "0px";
+    const popRect = pop.getBoundingClientRect();
+    const maxLeft = window.innerWidth - popRect.width - 8;
+    if(left > maxLeft) left = Math.max(8, maxLeft);
+    if(top + popRect.height > window.innerHeight - 8){ top = rect.top - popRect.height - 8; }
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+
+    setTimeout(function(){
+      document.addEventListener("mousedown", onOutside);
+      document.addEventListener("keydown", onKey);
+    }, 0);
   }
 
   // firestore sync
@@ -845,7 +967,7 @@
       dot.title = "Change color";
       dot.addEventListener("click", function(ev){
         ev.stopPropagation();
-        pickColor(p.color, function(newColor){ recolorPerson(p, newColor); });
+        pickColor(dot, p.color, function(newColor){ recolorPerson(p, newColor); });
       });
       chip.appendChild(dot);
       const label = document.createElement("span");
@@ -1154,7 +1276,7 @@
   }
 
   document.getElementById("addColorBtn").addEventListener("click", function(){
-    pickColor(addColor, function(color){
+    pickColor(document.getElementById("addColorBtn"), addColor, function(color){
       addColor = color;
       addColorTouched = true;
       document.getElementById("addColorBtn").style.background = addColor;
