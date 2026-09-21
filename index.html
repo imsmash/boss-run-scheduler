@@ -919,43 +919,52 @@
 
   function wireGridInteractions(table){
     let isPointerDown = false;
+    let activePointerId = null;
+    let lastCellEl = null;
 
-    function handleStart(td){
+    function applyToggle(td, forcedValue){
       if(mode !== "edit" || !editBuffer) return;
       const d = parseInt(td.dataset.day,10), h = parseInt(td.dataset.hour,10);
       const p = activePerson();
-      const currentlyOn = isDisplayCellOn(p, d, h);
-      paintValue = !currentlyOn;
-      toggleDisplayCellLocal(d, h, paintValue);
-      td.style.background = paintValue ? p.color : "transparent";
+      toggleDisplayCellLocal(d, h, forcedValue);
+      td.style.background = forcedValue ? p.color : "transparent";
     }
-    function handleEnter(td){
-      if(!isPointerDown || mode !== "edit" || paintValue === null || !editBuffer) return;
-      const d = parseInt(td.dataset.day,10), h = parseInt(td.dataset.hour,10);
-      const p = activePerson();
-      toggleDisplayCellLocal(d, h, paintValue);
-      td.style.background = paintValue ? p.color : "transparent";
+
+    function endDrag(){
+      if(!isPointerDown) return;
+      isPointerDown = false;
+      activePointerId = null;
+      lastCellEl = null;
+      paintValue = null;
+      flushEditBuffer().then(function(){ renderBest(); renderLegend(); });
     }
 
     table.addEventListener("pointerdown", function(e){
       const td = e.target.closest("td.cell");
-      if(!td) return;
+      if(!td || mode !== "edit" || !editBuffer) return;
       e.preventDefault();
+      const p = activePerson();
+      const d = parseInt(td.dataset.day,10), h = parseInt(td.dataset.hour,10);
+      paintValue = !isDisplayCellOn(p, d, h);
       isPointerDown = true;
-      handleStart(td);
+      activePointerId = e.pointerId;
+      lastCellEl = td;
+      table.setPointerCapture(e.pointerId);
+      applyToggle(td, paintValue);
     });
-    table.addEventListener("pointerenter", function(e){
-      const td = e.target.closest("td.cell");
-      if(!td) return;
-      handleEnter(td);
-    }, true);
-    document.addEventListener("pointerup", function(){
-      if(isPointerDown){
-        isPointerDown = false;
-        paintValue = null;
-        flushEditBuffer().then(function(){ renderBest(); renderLegend(); });
-      }
+
+    table.addEventListener("pointermove", function(e){
+      if(!isPointerDown || e.pointerId !== activePointerId || paintValue === null) return;
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const td = target ? target.closest("td.cell") : null;
+      if(!td || td === lastCellEl || !table.contains(td)) return;
+      lastCellEl = td;
+      applyToggle(td, paintValue);
     });
+
+    table.addEventListener("pointerup", endDrag);
+    table.addEventListener("pointercancel", endDrag);
+    document.addEventListener("pointerup", endDrag);
 
     table.addEventListener("mouseover", function(e){
       const td = e.target.closest("td.cell");
