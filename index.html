@@ -76,6 +76,11 @@
     padding:0;margin-left:auto;font-family:var(--font-body);
   }
   .sync-status button:hover{color:var(--accent);}
+  .sync-status .board-reveal-btn{
+    margin-left:0;text-decoration:none;
+    display:inline-flex;align-items:center;vertical-align:middle;
+  }
+  #boardLabel{letter-spacing:.05em;}
 
   .card{
     background:var(--surface);
@@ -652,6 +657,10 @@
   let displayTz = localStorage.getItem(TZ_PREF_KEY) || DETECTED_TZ;
   let addColor = COLORS[0];
   let addColorTouched = false;
+  let boardRevealed = false;
+
+  const EYE_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+  const EYE_OFF_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.86 21.86 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.86 21.86 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
 
   function activePerson(){
     if(!activeId) return null;
@@ -746,6 +755,7 @@
     activeId = null;
     mode = "overlap";
     editBuffer = null;
+    boardRevealed = false;
     setSyncStatus(null);
     renderAll();
     unsubscribePeople = onSnapshot(getPeopleCol(), function(snapshot){
@@ -1229,9 +1239,20 @@
     renderLegend();
     renderBest();
     const savedName = localStorage.getItem(NAME_KEY);
+    const boardName = boardDisplayName();
+    const boardShown = boardRevealed ? escapeHtml(boardName) : "•".repeat(Math.max(boardName.length, 6));
+    const boardHtml = "<strong id=\"boardLabel\">" + boardShown + "</strong> " +
+      "<button type=\"button\" id=\"boardRevealBtn\" class=\"board-reveal-btn\" aria-label=\"" +
+      (boardRevealed ? "Hide board code" : "Show board code") + "\" title=\"" +
+      (boardRevealed ? "Hide board code" : "Show board code") + "\">" +
+      (boardRevealed ? EYE_OFF_SVG : EYE_SVG) + "</button>";
     document.getElementById("gateGreeting").innerHTML = savedName
-      ? "Hi " + escapeHtml(savedName) + " · Board: <strong id=\"boardLabel\">" + escapeHtml(boardDisplayName()) + "</strong>"
-      : "Board: <strong id=\"boardLabel\">" + escapeHtml(boardDisplayName()) + "</strong>";
+      ? "Hi " + escapeHtml(savedName) + " · Board: " + boardHtml
+      : "Board: " + boardHtml;
+    document.getElementById("boardRevealBtn").addEventListener("click", function(){
+      boardRevealed = !boardRevealed;
+      renderAll();
+    });
     document.getElementById("cellDetail").textContent = mode === "edit"
       ? "Click or drag cells to mark when " + (activePerson() ? activePerson().name : "this person") + " is free."
       : "Hover or tap a cell to see who's free then.";
