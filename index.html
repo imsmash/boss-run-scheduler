@@ -403,6 +403,9 @@
     padding:20px;z-index:50;
   }
   .modal-backdrop[hidden]{display:none;}
+  .gate-backdrop{background:var(--bg);}
+  .gate-backdrop .modal{max-width:380px;}
+  .gate-backdrop .btn-primary{width:100%;justify-content:center;}
   .modal{
     background:var(--surface);
     border:1px solid var(--border);
@@ -435,6 +438,20 @@
 </head>
 <body>
 
+<div class="modal-backdrop gate-backdrop" id="landingGate" hidden>
+  <div class="modal">
+    <p class="eyebrow" style="margin:0 0 4px;">Weekly Party Finder</p>
+    <h2>Boss Run Scheduler</h2>
+    <p>Enter your name and your group's board code. Leave the code blank for the Main schedule.</p>
+    <input type="text" id="gateNameInput" placeholder="Your name" autocomplete="off">
+    <input type="text" id="gatePasscodeInput" placeholder="Board code (blank = Main)" autocomplete="off">
+    <div class="modal-error" id="gateError"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-primary" id="gateSubmitBtn">Continue</button>
+    </div>
+  </div>
+</div>
+
 <div class="wrap">
   <header>
     <p class="eyebrow">Weekly Party Finder</p>
@@ -446,8 +463,8 @@
       <button type="button" id="forgetCodeBtn" hidden>Forget saved code</button>
     </div>
     <div class="sync-status">
-      <span>Board: <strong id="boardLabel">Main</strong></span>
-      <button type="button" id="switchBoardBtn">Switch board</button>
+      <span id="gateGreeting">Board: <strong id="boardLabel">Main</strong></span>
+      <button type="button" id="switchBoardBtn">Not you? Switch</button>
     </div>
   </header>
 
@@ -537,6 +554,7 @@
 
   const CODE_KEY = "bossRunScheduler:code";
   const BOARD_KEY = "bossRunScheduler:board";
+  const NAME_KEY = "bossRunScheduler:name";
   const TZ_PREF_KEY = "bossRunScheduler:displayTz";
   let currentBoard = localStorage.getItem(BOARD_KEY) || "";
   let unsubscribePeople = null;
@@ -735,7 +753,9 @@
   }
 
   // firestore sync
+  let hasSubscribed = false;
   function subscribeBoard(){
+    hasSubscribed = true;
     if(unsubscribePeople){ unsubscribePeople(); unsubscribePeople = null; }
     people = [];
     activeId = null;
@@ -1305,27 +1325,48 @@
     renderLegend();
     renderBest();
     updateForgetBtn();
-    document.getElementById("boardLabel").textContent = boardDisplayName();
+    const savedName = localStorage.getItem(NAME_KEY);
+    document.getElementById("gateGreeting").innerHTML = savedName
+      ? "Hi " + escapeHtml(savedName) + " · Board: <strong id=\"boardLabel\">" + escapeHtml(boardDisplayName()) + "</strong>"
+      : "Board: <strong id=\"boardLabel\">" + escapeHtml(boardDisplayName()) + "</strong>";
     document.getElementById("cellDetail").textContent = mode === "edit"
       ? "Click or drag cells to mark when " + (activePerson() ? activePerson().name : "this person") + " is free."
       : "Hover or tap a cell to see who's free then.";
   }
 
-  async function switchBoard(){
-    const raw = await askForCode(
-      currentBoard
-        ? "Type a board code (leave blank for Main), then hit Continue:"
-        : "Type any code to create or join a separate board (leave blank to stay on Main):",
-      true,
-      { title: "Switch board", type: "text", placeholder: "Board code (blank = Main)" }
-    );
-    if(raw === null) return;
-    const sanitized = sanitizeBoardId(raw);
-    if(sanitized === currentBoard) return;
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return { "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;" }[c];
+    });
+  }
+
+  function showGate(){
+    document.getElementById("gateNameInput").value = localStorage.getItem(NAME_KEY) || "";
+    document.getElementById("gatePasscodeInput").value = currentBoard;
+    document.getElementById("gateError").textContent = "";
+    document.getElementById("landingGate").hidden = false;
+    document.getElementById("gateNameInput").focus();
+  }
+  function hideGate(){
+    document.getElementById("landingGate").hidden = true;
+  }
+
+  function enterBoard(name, passcode){
+    name = (name || "").trim();
+    if(!name){
+      document.getElementById("gateError").textContent = "Enter your name to continue.";
+      return;
+    }
+    localStorage.setItem(NAME_KEY, name);
+    const sanitized = sanitizeBoardId(passcode);
+    const changedBoard = sanitized !== currentBoard;
     currentBoard = sanitized;
     if(currentBoard){ localStorage.setItem(BOARD_KEY, currentBoard); }
     else{ localStorage.removeItem(BOARD_KEY); }
-    subscribeBoard();
+    const nameInput = document.getElementById("nameInput");
+    if(nameInput && !nameInput.value){ nameInput.value = name; }
+    hideGate();
+    if(changedBoard || !hasSubscribed){ subscribeBoard(); } else { renderAll(); }
   }
 
   document.getElementById("addColorBtn").addEventListener("click", function(){
@@ -1359,11 +1400,25 @@
     document.getElementById("forgetCodeBtn").hidden = !getSavedCode();
   }
 
-  document.getElementById("switchBoardBtn").addEventListener("click", switchBoard);
+  document.getElementById("switchBoardBtn").addEventListener("click", showGate);
+
+  document.getElementById("gateSubmitBtn").addEventListener("click", function(){
+    enterBoard(document.getElementById("gateNameInput").value, document.getElementById("gatePasscodeInput").value);
+  });
+  document.getElementById("landingGate").addEventListener("keydown", function(e){
+    if(e.key === "Enter"){
+      e.preventDefault();
+      enterBoard(document.getElementById("gateNameInput").value, document.getElementById("gatePasscodeInput").value);
+    }
+  });
 
   wireGridInteractions(document.getElementById("schedTable"));
   populateTzSelect(document.getElementById("tzInput"), displayTz);
-  subscribeBoard();
+  if(localStorage.getItem(NAME_KEY)){
+    subscribeBoard();
+  } else {
+    showGate();
+  }
 </script>
 </body>
 </html>
