@@ -474,7 +474,7 @@
   <div class="card">
     <div class="section-title">Roster</div>
     <div class="roster-row" id="rosterRow"></div>
-    <div class="empty-note" id="emptyNote" hidden>No one added yet — add your first teammate below.</div>
+    <div class="empty-note" id="emptyNote" hidden>No one added yet - add your first teammate below.</div>
     <form class="add-form" id="addForm">
       <button type="button" class="dot-btn" id="addColorBtn" aria-label="Pick a color" title="Pick a color"></button>
       <input type="text" id="nameInput" placeholder="Name" maxlength="24" autocomplete="off">
@@ -524,7 +524,7 @@
 </div>
 
 <script type="module">
-  // Firebase project config — Project settings → Your apps → Web app
+  // Firebase project config - Project settings → Your apps → Web app
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyCDCKBEianpwA3To9J-vPArIFmYUOqR3Ag",
     authDomain: "html-79b03.firebaseapp.com",
@@ -907,7 +907,7 @@
       included[pair[0]] = true;
       const opt = document.createElement("option");
       opt.value = pair[0];
-      opt.textContent = pair[1] + (pair[0] === DETECTED_TZ ? " — detected" : "");
+      opt.textContent = pair[1] + (pair[0] === DETECTED_TZ ? " - detected" : "");
       select.appendChild(opt);
     });
     if(!included[selectedTz]){
@@ -990,7 +990,7 @@
       dot.style.background = p.color;
       banner.appendChild(dot);
       const text = document.createElement("span");
-      text.textContent = "Editing " + p.name + "’s hours (" + tzLabel(p.tz) + ") — click or drag cells to toggle";
+      text.textContent = "Editing " + p.name + "’s hours (" + tzLabel(p.tz) + ") - click or drag cells to toggle";
       banner.appendChild(text);
       el.appendChild(banner);
     }
@@ -1122,8 +1122,8 @@
     const names = data.names[key] || [];
     const label = DAY_FULL[dayIdx] + " " + fmtHour(hour) + "–" + fmtHour((hour+1)%24);
     el.innerHTML = names.length === 0
-      ? "<strong>" + label + "</strong> — no one free yet"
-      : "<strong>" + label + "</strong> — " + names.join(", ");
+      ? "<strong>" + label + "</strong> - no one free yet"
+      : "<strong>" + label + "</strong> - " + names.join(", ");
   }
 
   function renderLegend(){
