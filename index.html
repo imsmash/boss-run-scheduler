@@ -400,7 +400,7 @@
 
   footer{margin-top:18px;text-align:center;font-size:12px;color:var(--text-dim);}
 
-  /* code gate modal */
+  /* modal */
   .modal-backdrop{
     position:fixed;inset:0;
     background:rgba(10,10,12,.6);
@@ -524,7 +524,7 @@
 </div>
 
 <script type="module">
-  // Firebase project config - Project settings → Your apps → Web app
+  // Firebase config
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyCDCKBEianpwA3To9J-vPArIFmYUOqR3Ag",
     authDomain: "html-79b03.firebaseapp.com",
@@ -647,10 +647,10 @@
   }
 
   // state
-  let people = [];              // live mirror of the current board's people (excludes removed)
+  let people = [];
   let activeId = null;
-  let mode = "overlap";         // "overlap" | "edit"
-  let editBuffer = null;        // { id, cells } local draft while editing, decoupled from live snapshot
+  let mode = "overlap";
+  let editBuffer = null;
   let paintValue = null;
   let refDate = new Date();
   let displayTz = localStorage.getItem(TZ_PREF_KEY) || DETECTED_TZ;
@@ -669,7 +669,6 @@
     return base;
   }
 
-  // opens the themed color popover near triggerEl; onPick(hexColor) fires once a color is chosen
   function normalizeHex(v){
     v = (v || "").trim();
     if(!v.startsWith("#")) v = "#" + v;
@@ -781,8 +780,6 @@
     await setDoc(doc(getPeopleCol(), person.id), person, { merge: false });
   }
 
-  // writes are gated only by knowing the board code itself (the Firestore
-  // path), so any signed-in board just writes directly.
   async function performWrite(person){
     try{
       await writePerson(person);
