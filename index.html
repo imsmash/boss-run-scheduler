@@ -442,9 +442,9 @@
   <div class="modal">
     <p class="eyebrow" style="margin:0 0 4px;">Weekly Party Finder</p>
     <h2>Boss Run Scheduler</h2>
-    <p>Enter your name and your group's board code. Leave the code blank for the Main schedule.</p>
+    <p>Enter your name and your group's board code to see their schedule.</p>
     <input type="text" id="gateNameInput" placeholder="Your name" autocomplete="off">
-    <input type="text" id="gatePasscodeInput" placeholder="Board code (blank = Main)" autocomplete="off">
+    <input type="password" id="gatePasscodeInput" placeholder="Board code" autocomplete="off">
     <div class="modal-error" id="gateError"></div>
     <div class="modal-actions">
       <button type="button" class="btn btn-primary" id="gateSubmitBtn">Continue</button>
@@ -460,10 +460,9 @@
     <div class="sync-status" id="syncStatus">
       <span class="sync-dot"></span>
       <span id="syncStatusText">Connecting…</span>
-      <button type="button" id="forgetCodeBtn" hidden>Forget saved code</button>
     </div>
     <div class="sync-status">
-      <span id="gateGreeting">Board: <strong id="boardLabel">Main</strong></span>
+      <span id="gateGreeting">Board: <strong id="boardLabel"></strong></span>
       <button type="button" id="switchBoardBtn">Not you? Switch</button>
     </div>
   </header>
@@ -520,19 +519,6 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="codeModal" hidden>
-  <div class="modal">
-    <h2 id="codeModalTitle">Enter the group code</h2>
-    <p id="codeModalMsg">Ask whoever set this up for the shared code — it's needed to add or change anyone's hours.</p>
-    <input type="password" id="codeInput" placeholder="Group code" autocomplete="off">
-    <div class="modal-error" id="codeModalError"></div>
-    <div class="modal-actions">
-      <button type="button" class="btn" id="codeCancelBtn">Cancel</button>
-      <button type="button" class="btn btn-primary" id="codeSubmitBtn">Continue</button>
-    </div>
-  </div>
-</div>
-
 <script type="module">
   // Firebase project config — Project settings → Your apps → Web app
   const FIREBASE_CONFIG = {
@@ -552,7 +538,6 @@
   const app = initializeApp(FIREBASE_CONFIG);
   const db = getFirestore(app);
 
-  const CODE_KEY = "bossRunScheduler:code";
   const BOARD_KEY = "bossRunScheduler:board";
   const NAME_KEY = "bossRunScheduler:name";
   const TZ_PREF_KEY = "bossRunScheduler:displayTz";
@@ -567,10 +552,10 @@
       .slice(0, 40);
   }
   function getPeopleCol(){
-    return currentBoard ? collection(db, "boards", currentBoard, "people") : collection(db, "people");
+    return collection(db, "boards", currentBoard, "people");
   }
   function boardDisplayName(){
-    return currentBoard ? currentBoard : "Main";
+    return currentBoard;
   }
 
   const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
@@ -658,7 +643,7 @@
   }
 
   // state
-  let people = [];              // live mirror of Firestore "people" collection (excludes removed)
+  let people = [];              // live mirror of the current board's people (excludes removed)
   let activeId = null;
   let mode = "overlap";         // "overlap" | "edit"
   let editBuffer = null;        // { id, cells } local draft while editing, decoupled from live snapshot
@@ -787,97 +772,17 @@
     await setDoc(doc(getPeopleCol(), person.id), person, { merge: false });
   }
 
-  // group code prompt
-  function getSavedCode(){ return localStorage.getItem(CODE_KEY); }
-  function saveCode(code){ localStorage.setItem(CODE_KEY, code); }
-  function clearCode(){ localStorage.removeItem(CODE_KEY); }
-
-  function askForCode(message, allowEmpty, opts){
-    opts = opts || {};
-    return new Promise(function(resolve){
-      const modal = document.getElementById("codeModal");
-      const input = document.getElementById("codeInput");
-      const errEl = document.getElementById("codeModalError");
-      const msgEl = document.getElementById("codeModalMsg");
-      const titleEl = document.getElementById("codeModalTitle");
-      titleEl.textContent = opts.title || "Enter the group code";
-      msgEl.textContent = message || "Ask whoever set this up for the shared code — it's needed to add or change anyone's hours.";
-      input.type = opts.type || "password";
-      input.placeholder = opts.placeholder || "Group code";
-      errEl.textContent = "";
-      input.value = "";
-      modal.hidden = false;
-      input.focus();
-
-      function cleanup(){
-        modal.hidden = true;
-        submitBtn.removeEventListener("click", onSubmit);
-        cancelBtn.removeEventListener("click", onCancel);
-        input.removeEventListener("keydown", onKey);
-      }
-      function onSubmit(){
-        const val = input.value.trim();
-        if(!val && !allowEmpty){ errEl.textContent = "Enter a code to continue."; return; }
-        cleanup();
-        resolve(val);
-      }
-      function onCancel(){ cleanup(); resolve(null); }
-      function onKey(e){ if(e.key === "Enter") onSubmit(); if(e.key === "Escape") onCancel(); }
-
-      const submitBtn = document.getElementById("codeSubmitBtn");
-      const cancelBtn = document.getElementById("codeCancelBtn");
-      submitBtn.addEventListener("click", onSubmit);
-      cancelBtn.addEventListener("click", onCancel);
-      input.addEventListener("keydown", onKey);
-    });
-  }
-
-  async function withCode(action){
-    let code = getSavedCode();
-    if(!code){
-      code = await askForCode();
-      if(!code) return false;
-      saveCode(code);
-    }
+  // writes are gated only by knowing the board code itself (the Firestore
+  // path), so any signed-in board just writes directly.
+  async function performWrite(person){
     try{
-      await action(code);
+      await writePerson(person);
       return true;
     }catch(err){
-      if(err && err.code === "permission-denied"){
-        clearCode();
-        const retry = await askForCode("That code didn't work — try again:");
-        if(!retry) return false;
-        saveCode(retry);
-        try{
-          await action(retry);
-          return true;
-        }catch(err2){
-          alert("Still couldn't save. Double check the code with whoever set this up.");
-          return false;
-        }
-      }
       console.error(err);
-      alert("Couldn't reach the shared list. Check your connection and try again.");
+      alert("Couldn't reach this board's list. Check your connection and try again.");
       return false;
     }
-  }
-
-  // writes go through the shared passphrase on the Main board; alt boards
-  // are gated only by knowing the board code itself, so they write directly.
-  async function performWrite(person){
-    if(currentBoard){
-      try{
-        await writePerson(person);
-        return true;
-      }catch(err){
-        console.error(err);
-        alert("Couldn't reach this board's list. Check your connection and try again.");
-        return false;
-      }
-    }
-    return withCode(function(code){
-      return writePerson(Object.assign({}, person, { passphrase: code }));
-    });
   }
 
   // add/edit/remove people
@@ -892,8 +797,7 @@
       tz: tz || displayTz,
       cells: {},
       removed: false,
-      createdAt: Date.now(),
-      passphrase: ""
+      createdAt: Date.now()
     };
     const ok = await performWrite(person);
     if(ok){
@@ -1324,7 +1228,6 @@
     renderTable();
     renderLegend();
     renderBest();
-    updateForgetBtn();
     const savedName = localStorage.getItem(NAME_KEY);
     document.getElementById("gateGreeting").innerHTML = savedName
       ? "Hi " + escapeHtml(savedName) + " · Board: <strong id=\"boardLabel\">" + escapeHtml(boardDisplayName()) + "</strong>"
@@ -1357,12 +1260,15 @@
       document.getElementById("gateError").textContent = "Enter your name to continue.";
       return;
     }
-    localStorage.setItem(NAME_KEY, name);
     const sanitized = sanitizeBoardId(passcode);
+    if(!sanitized){
+      document.getElementById("gateError").textContent = "Enter a board code to continue.";
+      return;
+    }
+    localStorage.setItem(NAME_KEY, name);
     const changedBoard = sanitized !== currentBoard;
     currentBoard = sanitized;
-    if(currentBoard){ localStorage.setItem(BOARD_KEY, currentBoard); }
-    else{ localStorage.removeItem(BOARD_KEY); }
+    localStorage.setItem(BOARD_KEY, currentBoard);
     const nameInput = document.getElementById("nameInput");
     if(nameInput && !nameInput.value){ nameInput.value = name; }
     hideGate();
@@ -1392,14 +1298,6 @@
     renderAll();
   });
 
-  document.getElementById("forgetCodeBtn").addEventListener("click", function(){
-    clearCode();
-    updateForgetBtn();
-  });
-  function updateForgetBtn(){
-    document.getElementById("forgetCodeBtn").hidden = !getSavedCode();
-  }
-
   document.getElementById("switchBoardBtn").addEventListener("click", showGate);
 
   document.getElementById("gateSubmitBtn").addEventListener("click", function(){
@@ -1414,7 +1312,7 @@
 
   wireGridInteractions(document.getElementById("schedTable"));
   populateTzSelect(document.getElementById("tzInput"), displayTz);
-  if(localStorage.getItem(NAME_KEY)){
+  if(localStorage.getItem(NAME_KEY) && currentBoard){
     subscribeBoard();
   } else {
     showGate();
