@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GLeague Scheduler</title>
+<title>Boss Run Scheduler</title>
 <style>
   :root{
     --bg:#1e1f26;
@@ -332,7 +332,7 @@
   }
   td.cell{
     width:13%;
-    height:16px;
+    height:20px;
     padding:0;
     cursor:pointer;
     position:relative;
@@ -340,14 +340,9 @@
     touch-action:none;
   }
   td.cell:hover{outline:2px solid var(--ring);outline-offset:-2px;}
-  td.cell.disabled{
-    cursor:default;
-    background:repeating-linear-gradient(135deg, var(--surface) 0 6px, var(--bg) 6px 12px);
-  }
-  td.cell.disabled:hover{outline:none;}
   td.cell .count{
     font-family:var(--font-mono);
-    font-size:10px;
+    font-size:10.5px;
     font-weight:700;
     color:var(--accent-ink);
     opacity:0;
@@ -416,7 +411,9 @@
   }
   .cell-detail strong{color:var(--text);}
 
-  .note{font-size:12px;color:var(--text-dim);margin:0 0 12px;}
+  .note{font-size:12px;color:var(--text-dim);margin-top:10px;}
+
+  footer{margin-top:18px;text-align:center;font-size:12px;color:var(--text-dim);}
 
   /* modal */
   .modal-backdrop{
@@ -463,8 +460,8 @@
 
 <div class="modal-backdrop gate-backdrop" id="landingGate" hidden>
   <div class="modal">
-    <p class="eyebrow" style="margin:0 0 4px;">Guild League Finder</p>
-    <h2>GLeague Scheduler</h2>
+    <p class="eyebrow" style="margin:0 0 4px;">Weekly Party Finder</p>
+    <h2>Boss Run Scheduler</h2>
     <p>Enter your name and your group's board code to see their schedule.</p>
     <input type="text" id="gateNameInput" placeholder="Your name" autocomplete="off">
     <input type="password" id="gatePasscodeInput" placeholder="Board code" autocomplete="off">
@@ -477,8 +474,8 @@
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">Guild League Finder</p>
-    <h1>GLeague Scheduler</h1>
+    <p class="eyebrow">Weekly Party Finder</p>
+    <h1>Boss Run Scheduler</h1>
     <div class="sync-status" id="syncStatus">
       <span class="sync-dot"></span>
       <span id="syncStatusText">Connecting…</span>
@@ -510,7 +507,6 @@
         <select id="displayTzSelect" aria-label="Display time zone"></select>
       </div>
     </div>
-    <p class="note">Weekdays: 6:00 PM - 3:00 AM &nbsp;·&nbsp; Weekends: 3:00 PM - 3:00 AM &nbsp;·&nbsp; 20-minute blocks</p>
     <div id="editingBanner"></div>
     <div id="modeControls" style="margin-bottom:10px;"></div>
 
@@ -561,9 +557,9 @@
   const app = initializeApp(FIREBASE_CONFIG);
   const db = getFirestore(app);
 
-  const BOARD_KEY = "gleagueScheduler:board";
-  const NAME_KEY = "gleagueScheduler:name";
-  const TZ_PREF_KEY = "gleagueScheduler:displayTz";
+  const BOARD_KEY = "bossRunScheduler:board";
+  const NAME_KEY = "bossRunScheduler:name";
+  const TZ_PREF_KEY = "bossRunScheduler:displayTz";
   let currentBoard = localStorage.getItem(BOARD_KEY) || "";
   let unsubscribePeople = null;
 
@@ -575,7 +571,7 @@
       .slice(0, 40);
   }
   function getPeopleCol(){
-    return collection(db, "glBoards", currentBoard, "people");
+    return collection(db, "boards", currentBoard, "people");
   }
   function boardDisplayName(){
     return currentBoard;
@@ -583,31 +579,8 @@
 
   const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
   const DAY_FULL = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+  const HOURS = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23];
   const COLORS = ["#5aaee0","#b08ee0","#7ec48a","#e07830","#e05555","#6a8ee0","#e0b85a","#e0a3c8"];
-
-  // slot grid: 36 rows of 20 minutes, starting 3:00 PM (covers the widest window, 3 PM-3 AM)
-  const SLOT_STEP = 20;
-  const WINDOW_START_MIN = 15 * 60; // 3:00 PM
-  const SLOT_COUNT = 36; // 12 hours of 20-minute blocks -> 3:00 PM to 3:00 AM
-  const WEEK_MIN = 7 * 24 * 60;
-  const SLOTS = Array.from({ length: SLOT_COUNT }, function(_, i){ return i; });
-  const WEEKDAY_ACTIVE_FROM = (18 * 60 - WINDOW_START_MIN) / SLOT_STEP; // slot index where 6 PM starts
-
-  function slotTimeOfDay(i){ return (WINDOW_START_MIN + i * SLOT_STEP) % 1440; }
-  function slotDayOffset(i){ return Math.floor((WINDOW_START_MIN + i * SLOT_STEP) / 1440); }
-  function isActive(dayIdx, i){ return dayIdx <= 4 ? i >= WEEKDAY_ACTIVE_FROM : true; }
-  function weekMinuteFor(dayIdx, i){
-    const nd = (dayIdx + slotDayOffset(i)) % 7;
-    return nd * 1440 + slotTimeOfDay(i);
-  }
-  function fmtClock(totalMin){
-    const h24 = Math.floor(totalMin / 60);
-    const m = totalMin % 60;
-    const period = h24 >= 12 ? "PM" : "AM";
-    let h12 = h24 % 12;
-    if(h12 === 0) h12 = 12;
-    return h12 + ":" + String(m).padStart(2, "0") + " " + period;
-  }
 
   const TZ_LIST = [
     ["Pacific/Honolulu","Hawaii"],
@@ -661,14 +634,23 @@
       return (asUTC - date.getTime()) / 60000;
     }catch(e){ return 0; }
   }
-  function convertWeekMinute(weekMin, fromTz, toTz, refDate){
-    if(fromTz === toTz) return weekMin;
+  function convertDayHour(day, hour, fromTz, toTz, refDate){
+    if(fromTz === toTz) return { day: day, hour: hour };
     const diffMin = tzOffsetMinutes(toTz, refDate) - tzOffsetMinutes(fromTz, refDate);
-    let total = weekMin + diffMin;
-    total = Math.round(total / SLOT_STEP) * SLOT_STEP;
-    return ((total % WEEK_MIN) + WEEK_MIN) % WEEK_MIN;
+    const diffHours = Math.round(diffMin / 60);
+    const total = hour + diffHours;
+    const dayShift = Math.floor(total / 24);
+    const newHour = ((total % 24) + 24) % 24;
+    const newDay = ((day + dayShift) % 7 + 7) % 7;
+    return { day: newDay, hour: newHour };
   }
-  function cellKey(weekMin){ return String(weekMin); }
+  function fmtHour(h){
+    const period = h >= 12 ? "PM" : "AM";
+    let display = h % 12;
+    if(display === 0) display = 12;
+    return display + " " + period;
+  }
+  function cellKey(dayIdx, hour){ return dayIdx + "-" + hour; }
   const WEEKDAY_INDEX = { Mon:0, Tue:1, Wed:2, Thu:3, Fri:4, Sat:5, Sun:6 };
   function nowWallMinutes(tz, date){
     try{
@@ -679,7 +661,7 @@
   }
   function nextEpochSeconds(targetTotalMinutes, tz, refDate){
     let delta = targetTotalMinutes - nowWallMinutes(tz, refDate);
-    while(delta < 0) delta += WEEK_MIN;
+    while(delta < 0) delta += 7 * 1440;
     return Math.round((refDate.getTime() + delta * 60000) / 1000);
   }
   async function copyDiscordTimestamp(totalMinutes, btn){
@@ -707,6 +689,11 @@
   function newId(){
     if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
     return Date.now().toString(36) + Math.random().toString(36).slice(2,10);
+  }
+  function colorForId(id){
+    let h = 0;
+    for(let i=0;i<id.length;i++){ h = (h * 31 + id.charCodeAt(i)) >>> 0; }
+    return COLORS[h % COLORS.length];
   }
 
   // state
@@ -903,23 +890,21 @@
     renderAll();
   }
 
-  function toggleDisplayCellLocal(dayIdx, i, forceValue){
+  function toggleDisplayCellLocal(dayIdx, hour, forceValue){
     if(!editBuffer) return null;
     const base = people.find(function(p){ return p.id === editBuffer.id; });
     const tz = base ? base.tz : displayTz;
-    const displayMin = weekMinuteFor(dayIdx, i);
-    const nativeMin = convertWeekMinute(displayMin, displayTz, tz, refDate);
-    const key = cellKey(nativeMin);
+    const native = convertDayHour(dayIdx, hour, displayTz, tz, refDate);
+    const key = cellKey(native.day, native.hour);
     const isOn = !!editBuffer.cells[key];
     const newVal = (typeof forceValue === "boolean") ? forceValue : !isOn;
     if(newVal) editBuffer.cells[key] = true;
     else delete editBuffer.cells[key];
     return newVal;
   }
-  function isDisplayCellOn(person, dayIdx, i){
-    const displayMin = weekMinuteFor(dayIdx, i);
-    const nativeMin = convertWeekMinute(displayMin, displayTz, person.tz, refDate);
-    return !!(person.cells || {})[cellKey(nativeMin)];
+  function isDisplayCellOn(person, dayIdx, hour){
+    const native = convertDayHour(dayIdx, hour, displayTz, person.tz, refDate);
+    return !!(person.cells || {})[cellKey(native.day, native.hour)];
   }
 
   async function flushEditBuffer(){
@@ -935,18 +920,15 @@
     const counts = {};
     const names = {};
     DAYS.forEach(function(_, d){
-      SLOTS.forEach(function(i){
-        if(!isActive(d, i)) return;
-        const k = cellKey(weekMinuteFor(d, i));
-        counts[k] = 0; names[k] = [];
-      });
+      HOURS.forEach(function(h){ const k = cellKey(d,h); counts[k]=0; names[k]=[]; });
     });
     people.forEach(function(p){
       const cells = (activeId === p.id && editBuffer) ? editBuffer.cells : (p.cells || {});
       Object.keys(cells).forEach(function(key){
-        const nativeMin = parseInt(key, 10);
-        const dispMin = convertWeekMinute(nativeMin, p.tz, displayTz, refDate);
-        const dkey = cellKey(dispMin);
+        const parts = key.split("-");
+        const nd = parseInt(parts[0],10), nh = parseInt(parts[1],10);
+        const disp = convertDayHour(nd, nh, p.tz, displayTz, refDate);
+        const dkey = cellKey(disp.day, disp.hour);
         if(counts[dkey] === undefined){ counts[dkey]=0; names[dkey]=[]; }
         counts[dkey]++;
         names[dkey].push(p.name);
@@ -1083,28 +1065,22 @@
     const total = people.length;
     const editing = activePerson();
 
-    SLOTS.forEach(function(i){
+    HOURS.forEach(function(hour){
       const tr = document.createElement("tr");
-      if(i % 3 === 0){ tr.className = "hour-sep"; }
+      if(hour % 6 === 0){ tr.className = "hour-sep"; }
       const rowHead = document.createElement("th");
-      rowHead.textContent = fmtClock(slotTimeOfDay(i));
+      rowHead.textContent = fmtHour(hour);
       tr.appendChild(rowHead);
 
       DAYS.forEach(function(d, dayIdx){
+        const key = cellKey(dayIdx, hour);
         const td = document.createElement("td");
         td.className = "cell";
         td.dataset.day = dayIdx;
-        td.dataset.slot = i;
+        td.dataset.hour = hour;
 
-        if(!isActive(dayIdx, i)){
-          td.classList.add("disabled");
-          tr.appendChild(td);
-          return;
-        }
-
-        const key = cellKey(weekMinuteFor(dayIdx, i));
         if(mode === "edit" && editing){
-          const isOn = isDisplayCellOn(editing, dayIdx, i);
+          const isOn = isDisplayCellOn(editing, dayIdx, hour);
           td.style.background = isOn ? editing.color : "transparent";
         } else {
           const count = data.counts[key] || 0;
@@ -1131,10 +1107,10 @@
     let lastCellEl = null;
 
     function applyToggle(td, forcedValue){
-      if(mode !== "edit" || !editBuffer || td.classList.contains("disabled")) return;
-      const d = parseInt(td.dataset.day,10), i = parseInt(td.dataset.slot,10);
+      if(mode !== "edit" || !editBuffer) return;
+      const d = parseInt(td.dataset.day,10), h = parseInt(td.dataset.hour,10);
       const p = activePerson();
-      toggleDisplayCellLocal(d, i, forcedValue);
+      toggleDisplayCellLocal(d, h, forcedValue);
       td.style.background = forcedValue ? p.color : "transparent";
     }
 
@@ -1149,11 +1125,11 @@
 
     table.addEventListener("pointerdown", function(e){
       const td = e.target.closest("td.cell");
-      if(!td || mode !== "edit" || !editBuffer || td.classList.contains("disabled")) return;
+      if(!td || mode !== "edit" || !editBuffer) return;
       e.preventDefault();
       const p = activePerson();
-      const d = parseInt(td.dataset.day,10), i = parseInt(td.dataset.slot,10);
-      paintValue = !isDisplayCellOn(p, d, i);
+      const d = parseInt(td.dataset.day,10), h = parseInt(td.dataset.hour,10);
+      paintValue = !isDisplayCellOn(p, d, h);
       isPointerDown = true;
       activePointerId = e.pointerId;
       lastCellEl = td;
@@ -1176,22 +1152,22 @@
 
     table.addEventListener("mouseover", function(e){
       const td = e.target.closest("td.cell");
-      if(!td || mode === "edit" || td.classList.contains("disabled")) return;
-      showCellDetail(parseInt(td.dataset.day,10), parseInt(td.dataset.slot,10));
+      if(!td || mode === "edit") return;
+      showCellDetail(parseInt(td.dataset.day,10), parseInt(td.dataset.hour,10));
     });
     table.addEventListener("click", function(e){
       const td = e.target.closest("td.cell");
-      if(!td || mode === "edit" || td.classList.contains("disabled")) return;
-      showCellDetail(parseInt(td.dataset.day,10), parseInt(td.dataset.slot,10));
+      if(!td || mode === "edit") return;
+      showCellDetail(parseInt(td.dataset.day,10), parseInt(td.dataset.hour,10));
     });
   }
 
-  function showCellDetail(dayIdx, i){
+  function showCellDetail(dayIdx, hour){
     const el = document.getElementById("cellDetail");
     const data = computeCounts();
-    const key = cellKey(weekMinuteFor(dayIdx, i));
+    const key = cellKey(dayIdx, hour);
     const names = data.names[key] || [];
-    const label = DAY_FULL[dayIdx] + " " + fmtClock(slotTimeOfDay(i)) + "-" + fmtClock((slotTimeOfDay(i)+SLOT_STEP)%1440);
+    const label = DAY_FULL[dayIdx] + " " + fmtHour(hour) + "–" + fmtHour((hour+1)%24);
     el.innerHTML = names.length === 0
       ? "<strong>" + label + "</strong> - no one free yet"
       : "<strong>" + label + "</strong> - " + names.join(", ");
@@ -1222,34 +1198,33 @@
     if(total === 0) return blocks;
 
     DAYS.forEach(function(_, d){
-      const slots = SLOTS.filter(function(i){ return isActive(d, i); });
-      let idx = 0;
-      while(idx < slots.length){
-        const i = slots[idx];
-        const key = cellKey(weekMinuteFor(d, i));
+      let i = 0;
+      while(i < HOURS.length){
+        const h = HOURS[i];
+        const key = cellKey(d,h);
         const count = data.counts[key] || 0;
-        if(count === 0){ idx++; continue; }
-        const startSlot = i;
+        if(count === 0){ i++; continue; }
+        const startHour = h;
         const startNames = data.names[key].slice().sort();
-        let j = idx+1;
-        while(j < slots.length){
-          const ni = slots[j];
-          const contiguous = (ni === slots[j-1] + 1);
-          const nkey = cellKey(weekMinuteFor(d, ni));
+        let j = i+1;
+        while(j < HOURS.length){
+          const nh = HOURS[j];
+          const contiguous = (nh === HOURS[j-1] + 1);
+          const nkey = cellKey(d,nh);
           const ncount = data.counts[nkey] || 0;
           const nnames = (data.names[nkey]||[]).slice().sort();
           if(!contiguous || ncount !== count || nnames.join("|") !== startNames.join("|")) break;
           j++;
         }
-        const endSlot = slots[j-1];
-        blocks.push({ day: d, startSlot: startSlot, endSlot: endSlot, count: count, names: startNames });
-        idx = j;
+        const endHour = HOURS[j-1];
+        blocks.push({ day: d, startHour: startHour, endHour: endHour, count: count, names: startNames });
+        i = j;
       }
     });
 
     blocks.sort(function(a,b){
       if(b.count !== a.count) return b.count - a.count;
-      return (b.endSlot-b.startSlot) - (a.endSlot-a.startSlot);
+      return (b.endHour-b.startHour) - (a.endHour-a.startHour);
     });
     return blocks;
   }
@@ -1283,7 +1258,7 @@
       tag.className = "day-tag";
       tag.textContent = DAYS[b.day];
       when.appendChild(tag);
-      when.appendChild(document.createTextNode(fmtClock(slotTimeOfDay(b.startSlot)) + " - " + fmtClock((slotTimeOfDay(b.endSlot)+SLOT_STEP)%1440)));
+      when.appendChild(document.createTextNode(fmtHour(b.startHour) + " – " + fmtHour((b.endHour+1)%24)));
       left.appendChild(when);
       const names = document.createElement("div");
       names.className = "names";
@@ -1298,7 +1273,7 @@
       copyBtn.textContent = "Copy Discord time";
       copyBtn.title = "Copies a Discord timestamp for the next occurrence of this time";
       copyBtn.addEventListener("click", function(){
-        copyDiscordTimestamp(weekMinuteFor(b.day, b.startSlot), copyBtn);
+        copyDiscordTimestamp(b.day * 1440 + b.startHour * 60, copyBtn);
       });
       right.appendChild(copyBtn);
       const frac = document.createElement("span");
